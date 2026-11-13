@@ -1,0 +1,11 @@
+# torch/torchvision installed separately for CUDA 12.8 (RTX 50-series): see run_all.sh
+ultralytics>=8.3
+huggingface_hub
+numpy
+pandas
+matplotlib
+scikit-learn
+opencv-python
+pillow
+tqdm
+pyyaml
