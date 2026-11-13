@@ -1,0 +1,37 @@
+{
+  "source": "HuggingFace dgural/bdd100k (BDD100K 10K images with original detection boxes)",
+  "n_images": {
+    "train": 8000,
+    "val": 2000
+  },
+  "n_boxes": {
+    "train": 148047,
+    "val": 37898
+  },
+  "boxes_per_class": {
+    "train": {
+      "car": 81911,
+      "truck": 3365,
+      "bus": 1271,
+      "person": 10585,
+      "rider": 527,
+      "bike": 811,
+      "motor": 369,
+      "traffic light": 21445,
+      "traffic sign": 27751,
+      "train": 12
+    },
+    "val": {
+      "car": 20926,
+      "truck": 878,
+      "bus": 389,
+      "person": 2840,
+      "rider": 131,
+      "bike": 228,
+      "motor": 91,
+      "traffic light": 5439,
+      "traffic sign": 6973,
+      "train": 3
+    }
+  }
+}

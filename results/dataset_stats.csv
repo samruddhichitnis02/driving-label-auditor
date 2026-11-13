@@ -1,0 +1,11 @@
+class,train_boxes,val_boxes
+car,81911,20926
+truck,3365,878
+bus,1271,389
+person,10585,2840
+rider,527,131
+bike,811,228
+motor,369,91
+traffic light,21445,5439
+traffic sign,27751,6973
+train,12,3
