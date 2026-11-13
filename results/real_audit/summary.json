@@ -1,0 +1,13 @@
+{
+  "n_labels_scored": 148047,
+  "top_flagged_in_queue": 100,
+  "labels_with_suspicion_ge_0_99": 2748,
+  "labels_with_suspicion_ge_0_95": 13251,
+  "missing_label_candidates_conf_ge_0_3": 9306,
+  "queue_by_suspected_type": {
+    "class_mismatch": 50,
+    "localization_error": 49,
+    "likely_spurious_label": 1
+  },
+  "status": "flagged, unverified - not claimed to be real errors"
+}
