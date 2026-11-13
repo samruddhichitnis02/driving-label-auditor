@@ -1,0 +1,18 @@
+{
+ "train_boxes": 148047,
+ "val_boxes": 37898,
+ "corrupted": 22192,
+ "noise_rate_pct": 15.0,
+ "ap_v2": 0.298,
+ "ap_v1": 0.253,
+ "random_precision": 0.144,
+ "mAP50_a": 0.475,
+ "mAP50_b": 0.457,
+ "mAP50_c": 0.452,
+ "mAP5095_a": 0.261,
+ "mAP5095_b": 0.251,
+ "mAP5095_c": 0.246,
+ "real_top_queue": 100,
+ "real_ge_099": 2748,
+ "real_ge_095": 13251
+}
