@@ -1,0 +1,11 @@
+{
+  "train_boxes": 148047,
+  "corrupted": 22192,
+  "rate": 0.14989834309374725,
+  "by_type": {
+    "class_flip": 5551,
+    "box_jitter": 5551,
+    "dropped": 5551,
+    "spurious": 5539
+  }
+}
