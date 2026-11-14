@@ -97,8 +97,8 @@ html = (RES / "real_audit" / "review.html").read_text(encoding="utf-8")
 check("review.html shows 'flagged, unverified' and makes no 'confirmed error' claim", html.count("flagged, unverified") >= 100 and "confirmed error" not in html.lower())
 check("README says real-audit boxes are not claimed as errors", "None of these is claimed to be a real error" in readme)
 # every required deliverable exists
-for f in ["README.md", "report.md", "DEVIATIONS.md", "requirements.txt", "run_all.sh", "figures/pr_curves.png", "figures/map_comparison.png",
-          "figures/example_flagged_crops.jpg", "results/noise_manifest.csv", "results/label_scores.csv", "results/real_audit/review_queue.csv"]:
+for f in ["README.md", "report.md", "DEVIATIONS.md", "requirements.txt", "run_all.sh", "figures/fig08_pr_curves.png", "figures/fig12_downstream_map.png",
+          "figures/fig16_flagged_crops.png", "figures/fig01_demo.gif", "results/noise_manifest.csv", "results/label_scores.csv", "results/real_audit/review_queue.csv"]:
     check(f"deliverable exists: {f}", (ROOT / f).exists())
 
 bad = [c for c in checks if not c[1]]

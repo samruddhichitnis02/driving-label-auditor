@@ -72,7 +72,7 @@ def main():
         y = (df.noise_type == t).to_numpy(); tpt = y.cumsum(); tot = y.sum()
         ax[1].plot((tpt / tot)[::20], (tpt / k)[::20], color=colors[t], label=t)
     ax[1].set(xlabel="recall of that type", ylabel="precision (hits of that type / flagged)", title="PR by noise type (same global ranking)"); ax[1].legend(); ax[1].grid(alpha=.3)
-    plt.tight_layout(); plt.savefig(FIG / f"pr_curves{suf}.png", dpi=150)
+    plt.tight_layout(); plt.savefig(WORK / f"pr_curves{suf}_quicklook.png", dpi=100)   # quick-look only; publication figure is made by s9_visuals.py
     print(json.dumps(out, indent=1))
 
 if __name__ == "__main__": main()

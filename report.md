@@ -31,7 +31,7 @@ Detection rate by noise type (share of that type inside the top-22,192 flagged, 
 | dropped box | 5,551 | 785 | 14.1% | 22.2% |
 | spurious box | 5,539 | 2,542 | 45.9% | 86.0% |
 
-![PR curves](figures/pr_curves.png)
+![PR curves](figures/fig08_pr_curves.png)
 
 **Where it works:** spurious boxes and box jitter are found at roughly 46-47% at a budget equal to the error count; class flips 35%.
 **Where it does not:** dropped (missing) boxes. Only 52% of them are even proposed as candidates by the model, and just
@@ -48,14 +48,14 @@ The first version (raw, uncalibrated sub-scores) had AP 0.253; v2 was adopted af
 Auto-cleaning did **not** help: (c) mAP50 0.452 vs (b) 0.457 (-0.005); a difference this small is within what one seed can produce. Noise itself cost only 0.019 mAP50 ((a) vs (b)). Cleaning flagged the top 22,205 rows; 1,427 labels were relabelled to the model's suggested class and 19,711 removed.
 Removing flagged labels also removes many *correct* labels (precision ~35%), which plausibly cancels the benefit.
 
-![mAP comparison](figures/map_comparison.png)  ![training curves](figures/training_curves.png)
+![mAP comparison](figures/fig12_downstream_map.png)  ![training curves](figures/fig14_downstream_curves.png)
 
 ### Audit of the original labels - FLAGGED, UNVERIFIED
 Running the scorer on the original, uncorrupted labels: top 100 flagged boxes saved as crops (`results/real_audit/crops/`, `review_queue.csv`, `review.html`).
 2,748 labels score >= 0.99 and 13,251 score >= 0.95 (percentile scores, so these counts are not error counts).
 **None of these is claimed to be a real error; nobody has reviewed them yet.** Please review a sample and record verdicts in `review_queue.csv`.
 
-![flagged crops](figures/example_flagged_crops.jpg)
+![flagged crops](figures/fig16_flagged_crops.png)
 
 
 ## Why cleaning did not help (hypotheses, untested)
@@ -63,8 +63,6 @@ Running the scorer on the original, uncorrupted labels: top 100 flagged boxes sa
 2. Injected noise costs only 0.019 mAP50 in this setup, leaving little to recover.
 3. One seed per condition; differences of ~0.005 are not distinguishable from noise.
 
-## Next steps
-Review a sample of `review_queue.csv` to estimate precision on real errors; repeat stage 6 with 3+ seeds; use a stronger full-data judge; repair labels instead of deleting them.
 
 ## Limitations
 - Noise is synthetic and uniformly random; real annotation errors are more structured and harder, so detection rates on real errors will differ.

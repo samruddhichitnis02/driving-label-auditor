@@ -18,18 +18,18 @@ for a, key, t in ((ax[0], "mAP50", "mAP50"), (ax[1], "mAP50_95", "mAP50-95")):
     v = [dn[k][key] for k in dn]; b = a.bar([name[k] for k in dn], v, color=cols)
     a.set_title(t + " on CLEAN val (2000 images)"); a.set_ylim(0, max(v) * 1.2); a.tick_params(axis="x", labelsize=7)
     for r, x in zip(b, v): a.text(r.get_x() + r.get_width() / 2, x + 0.004, f"{x:.3f}", ha="center", fontsize=9)
-plt.tight_layout(); plt.savefig(FIG / "map_comparison.png", dpi=150); plt.close()
+plt.tight_layout(); plt.savefig(WORK / "map_comparison_quicklook.png", dpi=100); plt.close()
 crops = sorted(glob.glob(str(RES / "real_audit/crops/*.jpg")))[:12]
 tiles = [cv2.resize(cv2.imread(c), (320, 240)) for c in crops]
 for t_, c in zip(tiles, crops):
     cv2.putText(t_, "#" + Path(c).name[:3] + " flagged, unverified", (4, 232), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
-cv2.imwrite(str(FIG / "example_flagged_crops.jpg"), np.vstack([np.hstack(tiles[i:i + 4]) for i in (0, 4, 8)]))
+cv2.imwrite(str(WORK / "example_flagged_crops_quicklook.jpg"), np.vstack([np.hstack(tiles[i:i + 4]) for i in (0, 4, 8)]))
 fig, ax = plt.subplots(1, 2, figsize=(10, 3.6))
 for n_, c_ in (("a_clean", cols[0]), ("b_noisy", cols[1]), ("c_cleaned", cols[2])):
     d = pd.read_csv(RES / "logs" / f"downstream_{n_}_epochs.csv").rename(columns=str.strip)
     ax[0].plot(d.epoch, d["train/box_loss"], color=c_, label=name[n_]); ax[1].plot(d.epoch, d["metrics/mAP50(B)"], color=c_, label=name[n_])
 ax[0].set(title="train box loss", xlabel="epoch"); ax[1].set(title="val mAP50 (clean val)", xlabel="epoch"); ax[1].legend(fontsize=7)
-plt.tight_layout(); plt.savefig(FIG / "training_curves.png", dpi=150); plt.close()
+plt.tight_layout(); plt.savefig(WORK / "training_curves_quicklook.png", dpi=100); plt.close()
 
 # ---- tables
 pk = "\n".join(f"| {r['k']:,} | {r['precision']:.3f} | {r['recall']:.3f} |" for r in ev["precision_recall_at_k"])
@@ -66,7 +66,7 @@ Detection rate by noise type (share of that type inside the top-{N:,} flagged, i
 |---|---|---|---|---|
 {pt_rows}
 
-![PR curves](figures/pr_curves.png)
+![PR curves](figures/fig08_pr_curves.png)
 
 **Where it works:** spurious boxes and box jitter are found at roughly 46-47% at a budget equal to the error count; class flips 35%.
 **Where it does not:** dropped (missing) boxes. Only {dr['max_possible_recall_with_candidates']*100:.0f}% of them are even proposed as candidates by the model, and just
@@ -81,14 +81,14 @@ The first version (raw, uncalibrated sub-scores) had AP {ev1['average_precision'
 {verdict} Noise itself cost only {d_ba:.3f} mAP50 ((a) vs (b)). Cleaning flagged the top {clean['K_top_rows']:,} rows; {clean['relabelled']:,} labels were relabelled to the model's suggested class and {clean['removed']:,} removed.
 Removing flagged labels also removes many *correct* labels (precision ~35%), which plausibly cancels the benefit.
 
-![mAP comparison](figures/map_comparison.png)  ![training curves](figures/training_curves.png)
+![mAP comparison](figures/fig12_downstream_map.png)  ![training curves](figures/fig14_downstream_curves.png)
 
 ### Audit of the original labels - FLAGGED, UNVERIFIED
 Running the scorer on the original, uncorrupted labels: top 100 flagged boxes saved as crops (`results/real_audit/crops/`, `review_queue.csv`, `review.html`).
 {real['labels_with_suspicion_ge_0_99']:,} labels score >= 0.99 and {real['labels_with_suspicion_ge_0_95']:,} score >= 0.95 (percentile scores, so these counts are not error counts).
 **None of these is claimed to be a real error; nobody has reviewed them yet.** Please review a sample and record verdicts in `review_queue.csv`.
 
-![flagged crops](figures/example_flagged_crops.jpg)
+![flagged crops](figures/fig16_flagged_crops.png)
 
 """
 LIMITS = f"""## Limitations
