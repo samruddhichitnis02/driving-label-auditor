@@ -1,33 +1,36 @@
-<h1 align="center">Label Quality Auditor</h1>
-<p align="center"><b>Can an AI automatically find the wrong labels in self-driving-car training data?</b><br>
-I built a pipeline that flags suspicious bounding-box labels, then measured how well it works by breaking labels on purpose so the right answers are known.</p>
+# Label Quality Auditor
 
-<p align="center"><img src="figures/demo.gif" width="860" alt="Animated demo: one driving photo goes through label corruption, AI re-check and flagging"></p>
+Finding wrong bounding-box labels in self-driving data, and measuring how well that works when I know exactly which labels are wrong.
 
-<p align="center"><sub>Above: one real photo from the project. Green = correct labels, red = labels I corrupted, blue = what the AI sees, yellow = labels the auditor flags.</sub></p>
+[Report](report.md) | [Deviations from the plan](DEVIATIONS.md) | [How to run it](#running-it)
 
-![scorecard](figures/00_scorecard.png)
+<p align="center"><img src="figures/fig01_demo.gif" width="700" alt="One training image going through the pipeline"></p>
 
-## In 60 seconds
+**Figure 1.** One training image going through the pipeline: the original labels, the labels after I corrupted some of them, what a detector that never saw this image predicts, the boxes the auditor flags, and a comparison with the answer key. Green is a correct label, orange a corrupted one, blue a prediction, yellow a flag.
 
-- **The problem.** A self-driving perception model learns from images where people drew boxes around cars, pedestrians and signs. People make mistakes, and bad labels quietly make the model worse. Nobody can re-check millions of boxes by hand.
-- **What I built.** An *auditor*: a detector trained with cross-fitting that re-looks at every labelled box and says "I disagree with this label, and here is why" (wrong class / bad box / fake box / missing box).
-- **How I tested it honestly.** I corrupted 15% of the training labels on purpose (22,192 boxes in 4 ways), kept a secret answer key, and graded the auditor against it.
-- **What I found.** The auditor is **2.1x better than random guessing** (average precision 0.30 vs 0.14). It finds 46% of fake boxes, 46% of bad boxes and 35% of wrong classes at a review budget equal to the number of errors, but only 14% of deleted boxes.
-- **What did not work (and I say so).** Automatically fixing/removing flagged labels did **not** improve the final detector (mAP50 0.452 vs 0.457). Section 6 explains why.
-- **Skills shown:** Python, PyTorch/Ultralytics YOLO, computer vision, experiment design, controlled ablations, honest evaluation, data-quality triage, reproducible pipeline (one script) with an automatic claim verifier (`verify_claims.py`, 48 checks).
+## Summary
 
-## How the project works
+A self-driving perception model is only as good as the boxes it was trained on, and people drawing those boxes make mistakes. I wanted to see how well a model can point at those mistakes on its own. The difficulty is that you can't measure that on a normal dataset, because nobody knows which labels are wrong. So I took BDD100K (10,000 images), deliberately broke 15% of the training boxes in four different ways, and trained a YOLO11s detector on the damaged labels. To stop the model from simply agreeing with labels it had memorised, I trained it in two folds and only let each one judge images it had never seen. Every label then gets a suspicion score based on how much the held-out prediction disagrees with it.
 
-![pipeline](figures/01_pipeline.png)
+Measured against the known errors, the ranking reaches an average precision of 0.298, compared with 0.144 for a random order (2.1x better). If a reviewer looks at as many items as there are injected errors, they find 46% of the jittered boxes, 46% of the spurious boxes, 35% of the class flips and 14% of the dropped boxes. The part that did not work out: removing or relabelling the top-ranked 15% of labels and retraining did **not** help (mAP50 0.452 against 0.457 with the noisy labels and 0.475 with clean ones, one seed). I also ran the auditor on the original labels and saved the 100 most suspicious boxes. Nobody has checked those yet.
 
-### 1. The data
+## Why this problem
 
-I used **BDD100K**, a public driving dataset: 10,000 real street photos with boxes for 10 classes (cars, trucks, buses, people, riders, bikes, motorcycles, traffic lights, traffic signs, trains). I split it once, with a fixed random seed, into **8,000 training photos** and **2,000 validation photos**. The validation photos are kept clean and are never touched.
+Looking through every label by hand does not scale, so a team needs a short list of boxes worth a second look. To judge whether such a list is any good, you need a case where the wrong labels are known. That is why I inject the errors myself instead of hunting for real ones. The two-fold trick comes from confident learning (Northcutt et al., 2021); here I apply it to box-level detection labels and four kinds of error.
 
-![dataset](figures/02_dataset_classes.png)
+![pipeline](figures/fig02_pipeline.png)
 
-| class | train boxes | val boxes |
+**Figure 2.** The pipeline, from data to the audit of the original labels.
+
+## How it works
+
+### Data
+
+I used the BDD100K detection labels for 10,000 images, taken from a public Hugging Face copy (see `DEVIATIONS.md` for why not the official download). Class names are mapped to ten classes (`pedestrian`, `bicycle` and `motorcycle` become `person`, `bike` and `motor`) and other categories are dropped. A fixed random split gives 8,000 training and 2,000 validation images. The validation labels are never touched.
+
+**Table 1.** Boxes per class.
+
+| class | train | val |
 |---|---|---|
 | car | 81,911 | 20,926 |
 | truck | 3,365 | 878 |
@@ -40,145 +43,168 @@ I used **BDD100K**, a public driving dataset: 10,000 real street photos with box
 | traffic sign | 27,751 | 6,973 |
 | train | 12 | 3 |
 
-*Cars, traffic signs and traffic lights dominate; `train` (the railway kind) has only 12 training boxes, so results for it mean nothing.*
+![dataset](figures/fig03_dataset.png)
 
-### 2. Breaking labels on purpose (so we know the right answers)
+**Figure 3.** Boxes per class on a log scale. Cars and traffic signs dominate. The `train` class has only 12 training boxes, which is too few to learn anything from.
 
-If I only had the original labels I could never know whether the auditor was right. So I made a **copy** of the training labels and corrupted 15% of the boxes in four ways. Every change is written to `results/noise_manifest.csv`, which is the answer key.
+### Breaking the labels
 
-![noise examples](figures/03_noise_examples.png)
+I copied the training labels and corrupted 22,192 of the 148,047 boxes (15.0%), split evenly over four error types. Each change is recorded in `results/noise_manifest.csv`, which serves as the answer key.
 
-![noise mix](figures/04_noise_mix.png)
+**Table 2.** The four error types.
 
-### 3. Training the detector (with a trick: cross-fitting)
+| type | what I do | boxes |
+|---|---|---|
+| Class flip | the label is swapped for a class it is easily confused with (car/truck, truck/bus, bike/motor, person/rider, traffic light/sign, train/bus) | 5,551 |
+| Box jitter | the box centre is moved by 15-40% of the box size and the width and height are rescaled (x0.6-0.8 or x1.25-1.6), so IoU with the original is below 0.7 | 5,551 |
+| Spurious box | a new box with a class and size copied from real boxes, placed where it overlaps no existing label (IoU < 0.02) | 5,539 |
+| Dropped box | the label is deleted | 5,551 |
 
-I fine-tuned a small pretrained **YOLO11s** object detector on the *noisy* labels. There is one trap: a model that trained on a wrong label can memorise it and agree with it, which hides the error. So I split the training photos in two halves. One detector learns on half A and judges half B; another learns on B and judges A. **No photo is ever judged by a model that trained on it.**
+![noise examples](figures/fig04_noise_examples.png)
 
-![crossfit](figures/05_crossfit.png)
+**Figure 4.** One real example of each error. Green dashed is the original box, orange is the corrupted one.
 
-Real training curves for the two detectors (30 epochs each, logged to `results/logs/`). Final accuracy on the clean validation photos: mAP50 0.425 and 0.417. These are small models trained on only 4,000 photos each, so they are modest judges.
+### The cross-fitted detector
 
-![crossfit training](figures/06_crossfit_training.png)
+I split the training images into two folds. A YOLO11s detector (pretrained on COCO, 30 epochs, image size 640, batch 32, seed 0) is fine-tuned on the noisy labels of one fold and then predicts the other fold, and the same again the other way round. That way no image is ever scored by a model that trained on it, which matters because a model that has seen a wrong label can learn to repeat it.
 
-### 4. Scoring every label
+![cross-fitting](figures/fig05_cross_fitting.png)
 
-For each training box, the auditor compares the label with what the held-out detector predicts at that spot and produces a **suspicion score** (0 to 1) plus a **reason**:
+**Figure 5.** Two-fold cross-fitting.
 
-| Reason | What it means in plain words |
+![training](figures/fig06_detector_training.png)
+
+**Figure 6.** Training loss and validation mAP50 for the two detectors (per-epoch logs are in `results/logs/`). They end at mAP50 0.425 and 0.417. Each one only sees 4,000 images, so they are fairly modest judges.
+
+### Scoring the labels
+
+For every label, I look at what the held-out detector predicts around it and compute three signals, plus a list of possible missing labels.
+
+**Table 3.** The signals.
+
+| signal | how it is computed |
 |---|---|
-| Wrong class | The AI confidently sees a *different* class on this box (label says truck, AI says car). |
-| Bad box | The AI sees the same kind of object, but the box only partly overlaps it. |
-| Fake box | The AI sees nothing at all under this label. |
-| Missing box | The AI confidently sees an object that has *no* label. |
+| class mismatch | highest confidence of a prediction of a different class with IoU >= 0.5, minus the highest same-class confidence at IoU >= 0.5 (not below 0) |
+| localization error | over same-class predictions with 0.1 <= IoU < 0.75, the highest conf x (1 - IoU), times (1 - highest same-class conf at IoU >= 0.75) |
+| spurious label | 1 minus the highest confidence of any prediction with IoU >= 0.3 |
+| missing label | predictions with conf >= 0.3 that overlap no label (IoU < 0.3), ranked by confidence |
 
-I built two versions. **v1** used the raw scores; the "nothing here" score drowned out the rest. **v2** converts each score into a percentile among boxes of the same class and size, so the four reasons are comparable. v2 uses no information from the answer key, but I *did* choose it after looking at v1's results, so I report both.
+My first version (v1) ranked labels by the largest raw signal. That worked badly, because the spurious signal fired on so many small, hard-to-see objects that it buried everything else. In v2 I turned each signal into a percentile among labels of the same class and size, so they can be compared, and rank by the largest percentile. v2 does not use the answer key, but I chose it after seeing how v1 did, so I report both.
 
-![score distribution](figures/10_score_distribution.png)
+![score distribution](figures/fig07_score_distribution.png)
 
-### 5. Grading the auditor against the answer key
+**Figure 7.** v2 suspicion scores for uncorrupted and corrupted labels.
 
-Plain-language metrics guide:
+### How I measure it
 
-- **Precision@k:** of the first *k* boxes the auditor flags, what share are really errors?
-- **Recall@k:** of all 22,192 injected errors, what share are inside those first *k*?
-- **PR curve:** precision vs recall as you read further down the list. Higher and further right is better.
-- **Average precision (AP):** one number summarising the PR curve. Random guessing gets 0.144 here.
+I rank all 161,696 items (the noisy labels plus the missing-label candidates) by suspicion. A flagged label counts as a hit if it is in the manifest. A missing-label candidate counts as a hit if it overlaps a dropped box with IoU >= 0.5, and each dropped box can only be matched once. Precision@k is the share of the top k items that are real errors, and recall@k is the share of all 22,192 injected errors found within the top k. Average precision (AP) summarises the whole precision-recall curve in one number. I also report how many errors of each type turn up in the top N and top 2N items, where N = 22,192 is the number of injected errors.
 
-![PR curves](figures/07_pr_curves.png)
+## Results
 
-| k (boxes a human would review) | precision | recall |
+### Finding the injected errors
+
+**Table 4.** Precision and recall of the v2 ranking. A random ranking would have precision 0.144.
+
+| k | precision@k | recall@k |
 |---|---|---|
-| 100 | 32.0% | 0.1% |
-| 500 | 30.0% | 0.7% |
-| 1,000 | 28.9% | 1.3% |
-| 5,000 | 33.3% | 7.5% |
-| 10,000 | 39.0% | 17.6% |
-| 22,192 | 35.5% | 35.5% |
-| 30,000 | 32.5% | 43.9% |
-| 50,000 | 27.0% | 60.8% |
+| 100 | 0.320 | 0.001 |
+| 500 | 0.300 | 0.007 |
+| 1,000 | 0.289 | 0.013 |
+| 5,000 | 0.333 | 0.075 |
+| 10,000 | 0.390 | 0.176 |
+| 22,192 | 0.355 | 0.355 |
+| 30,000 | 0.325 | 0.439 |
+| 50,000 | 0.270 | 0.608 |
 
-![precision recall at k](figures/08_precision_recall_at_k.png)
+![pr](figures/fig08_pr_curves.png)
 
-**Detection rate by error type**, using a review budget equal to the number of errors (22,192), and then twice that:
+**Figure 8.** (a) Precision-recall curves for v1 and v2. (b) How quickly each error type is found as a reviewer reads further down the v2 list.
 
-| Mistake | Injected | Found in top 22,192 | Rate (v2) | Rate at 2x budget | Rate (v1) |
+![at k](figures/fig09_precision_recall_at_k.png)
+
+**Figure 9.** Precision@k and recall@k for v2. The dotted line marks k = N.
+
+**Table 5.** Share of the injected errors found, by type.
+
+| type | injected | found in top N | rate (v2) | rate in top 2N (v2) | rate in top N (v1) |
 |---|---|---|---|---|---|
-| Wrong class | 5,551 | 1,966 | **35%** | 49% | 11% |
-| Bad box | 5,551 | 2,579 | **46%** | 70% | 32% |
-| Fake box | 5,539 | 2,542 | **46%** | 86% | 83% |
-| Deleted box | 5,551 | 785 | **14%** | 22% | 0% |
+| Class flip | 5,551 | 1,966 | 35.4% | 49.1% | 11.5% |
+| Box jitter | 5,551 | 2,579 | 46.5% | 70.4% | 31.9% |
+| Spurious box | 5,539 | 2,542 | 45.9% | 86.0% | 83.4% |
+| Dropped box | 5,551 | 785 | 14.1% | 22.2% | 0.0% |
 
-![detection by type](figures/09_detection_by_type.png)
+![by type](figures/fig10_detection_by_type.png)
 
-![error type matrix](figures/11_error_type_matrix.png)
+**Figure 10.** Percentage of injected errors found, by type, for v1 (top N) and v2 (top N and top 2N).
 
-**What the charts say:**
-- At a budget of 22,192 reviews, v2 finds 46% of bad boxes, 46% of fake boxes, 35% of wrong classes and 14% of deleted boxes. With twice the budget, fake boxes reach 86%.
-- **v2 is a trade-off, not a free win.** v1 actually found *more* fake boxes at the same budget (83%) but almost nothing else, because its "nothing here" score pushed every other error type down the list. v2 spreads attention across all four types and wins overall (AP 0.30 vs 0.25).
-- When the auditor does flag something, it usually names the right problem: 89% for wrong class, 84% for bad box, 100% for fake and deleted (matrix above). Its main weakness is false alarms: most of its wrong flags say "bad box", often on small or distant objects.
+![matrix](figures/fig11_error_type_matrix.png)
 
-**Where it does not work:** deleted boxes. The model only proposes a box for 52% of them at all, and most of those are not confident enough to rank high. Also, precision in the very top 100 is only 32%: this is a **triage tool that shrinks a haystack, not an oracle**.
+**Figure 11.** What the auditor says (columns) against what actually happened (rows), among the top N items.
 
-### 6. Does cleaning the labels make a better model?
+v2 beats v1 on average precision (0.298 against 0.253), but it is a trade. v1 found more spurious boxes (83% against 46% in the top N) and very little of anything else, while v2 spreads its attention over all four types. Dropped boxes are the hardest case: the detector only proposes a box that matches for 52% of them, and that caps what can be found. When the auditor flags a real error it usually names the right problem (Figure 11). Its weak spot is false alarms, most of which are labelled localization errors on small or distant objects. Even the top 100 items are only 32% real errors, so I'd treat the ranking as a way to prioritise a review, not as a verdict.
 
-This is the question a team really cares about. I trained **three detectors with identical settings and the same seed** and tested all of them on the *same clean validation photos*:
+### Does cleaning the labels help the detector?
 
-- **(a)** trained on the clean labels (the best case),
-- **(b)** trained on the noisy labels (the problem),
-- **(c)** trained on the noisy labels after the auditor fixed or removed what it flagged: 1,427 labels relabelled to the AI's suggestion and 19,711 removed.
+I trained three detectors with identical settings and seed, and evaluated all of them on the same clean validation set: (a) on the clean labels, (b) on the noisy labels, and (c) on the noisy labels after cleaning. For (c) I took the top 15% of ranked items (a noise budget I assumed, not the true count), relabelled the 1,427 class-mismatch labels to the suggested class and removed the other 19,711 flagged labels.
 
-| Training labels | mAP50 | mAP50-95 |
+**Table 6.** Accuracy on the clean validation set.
+
+| training labels | mAP50 | mAP50-95 |
 |---|---|---|
-| (a) Clean labels | 0.475 | 0.261 |
-| (b) Noisy labels | 0.457 | 0.251 |
-| (c) Noisy, then auto-cleaned | 0.452 | 0.246 |
+| (a) Clean | 0.475 | 0.261 |
+| (b) Noisy | 0.457 | 0.251 |
+| (c) Noisy + auto-cleaned | 0.452 | 0.246 |
 
-![downstream](figures/12_downstream_map.png)
+![downstream](figures/fig12_downstream_map.png)
 
-**Auto-cleaning did **not** help: (c) mAP50 0.452 vs (b) 0.457 (-0.005); a difference this small is within what one seed can produce.** Noise itself only cost 0.019 mAP50 (a vs b), so there was little to win back. My best explanation, not tested: only about 35% of what the auditor flags at the top is a real error, so removing flagged labels also deletes a lot of correct ones, which cancels the benefit.
+**Figure 12.** mAP50 and mAP50-95 of the three detectors.
 
-![per class](figures/13_downstream_per_class.png)
+Cleaning the labels did **not** help. The cleaned run (c) reached mAP50 0.452 against 0.457 for the noisy run (b), a difference of -0.005. With one seed per run I wouldn't read anything into a gap that small, but it is certainly not an improvement. The noise itself only cost 0.019 mAP50 ((a) against (b)), so there was not much to win back to begin with. My guess, which I have not tested, is that only about a third of the top-ranked items are real errors (Table 4), so removing them throws away many good labels along with the bad ones.
 
-![downstream curves](figures/14_downstream_curves.png)
+![per class](figures/fig13_downstream_per_class.png)
 
-### 7. Auditing the real labels
+**Figure 13.** mAP50 per class (the `train` class is left out).
 
-I then ran the auditor on the **original, uncorrupted** labels and saved the top 100 flagged boxes as crops with the label drawn on them (`results/real_audit/crops/`), a table (`review_queue.csv`) and a simple web page (`review.html`; just open it in a browser).
+![curves](figures/fig14_downstream_curves.png)
 
-> **Flagged, unverified.** These are boxes where the auditor *disagrees* with the human label. **None of these is claimed to be a real error.** No human has reviewed them yet.
+**Figure 14.** Training loss and validation mAP50 of the three downstream detectors.
 
-- Top-100 review queue: **100 boxes**. 2,748 labels score >= 0.99 and 13,251 score >= 0.95 (these are percentile scores, not error counts).
-- Sanity check (raw signals, left three charts below): the "confident different class" signal fires on 0.7% of the original labels but 2.1% after I flipped classes (about 3x more), so that signal clearly reacts to damage. The other two barely move (3.0% to 3.4%, and 58.6% to 60.6%) because they are dominated by objects the small detector simply misses. That matches the weak per-type results above.
-- Note: v2's percentile scores always put roughly the same share of labels above any cutoff, in any dataset, so they cannot be used for this check. That is why the check uses the raw signals.
+### The original labels
 
-![real audit](figures/15_real_audit.png)
+I also ran the scorer on the original, uncorrupted training labels. The top 100 items are saved as crops with the label drawn on them (`results/real_audit/crops/`), as `review_queue.csv`, and as a simple page, `review.html`, that opens in any browser.
 
-![flagged crops](figures/16_flagged_crops.png)
+> **Flagged, unverified.** These are boxes where the auditor disagrees with the human label. **None of these is claimed to be a real error.** No person has reviewed them yet.
 
-## Honest limitations
+The queue has 100 boxes: 50 suspected class mismatches, 49 localization errors and 1 spurious label. 2,748 labels score 0.99 or higher and 13,251 score 0.95 or higher, but because v2 scores are percentiles those are not error counts. As a sanity check I compared the raw signals on the original labels with the same signals after I added noise (Figure 15a-c). The class-mismatch signal is at least 0.5 on 0.7% of the original labels and 2.1% of the noisy ones, about 3x more, so it clearly reacts to damage. The localization (3.0% against 3.4%) and spurious (58.6% against 60.6%) signals barely move, because they are dominated by objects the detector simply misses. I can't use the percentile scores for this check, since they come out roughly the same in any dataset.
 
-- The noise is synthetic and random. Real annotation mistakes are more structured and subtle, so real-world detection rates will differ.
-- One random seed per experiment and no confidence intervals. The (b) vs (c) gap of 0.005 is smaller than what seed-to-seed variation could produce.
-- The judge detectors are small (YOLO11s, 4,000 photos each, mAP50 about 0.42). Small objects like distant traffic signs are hard for them, which causes false flags.
-- I changed the scoring method once (v1 to v2) after seeing results. Both are reported in full.
-- The BDD100K copy came from Hugging Face (`dgural/bdd100k`), not the official download (it needs a login). See `DEVIATIONS.md`.
-- The 100 real-label flags are **unverified**.
+![real audit](figures/fig15_real_audit.png)
 
-## Run it yourself
+**Figure 15.** (a-c) Share of labels with each raw signal at 0.5 or above, in the original and the noisy label sets. (d) Suspected type of the top-100 queue.
+
+![crops](figures/fig16_flagged_crops.png)
+
+**Figure 16.** The 12 highest-ranked boxes in the original labels (the green box is the existing label). Flagged, unverified.
+
+## Running it
 
 ```bash
-git clone <this repo> && cd driving-label-auditor
-bash run_all.sh          # builds .venv, downloads data, runs every stage (~3-4 h on an RTX 5090)
-python verify_claims.py  # re-derives the claims in this README from the raw files (48 checks)
+bash run_all.sh          # creates .venv, downloads the data, runs every stage (about 3-4 h on one RTX 5090)
+python verify_claims.py  # recomputes the numbers reported here from the raw outputs
 ```
 
-| Folder / file | What is in it |
-|---|---|
-| `src/` | One script per stage (`s1_prep.py` ... `s9_visuals.py`), shared code in `common.py`, scoring logic in `scorer.py` |
-| `results/` | Raw logs, per-epoch training CSVs, `noise_manifest.csv` (answer key), `label_scores.csv`, evaluation JSONs, real-label review queue |
-| `figures/` | Every chart and the demo GIF |
-| `report.md` | The longer technical write-up |
-| `DEVIATIONS.md` | Everything that differs from the original plan, and why |
-| `verify_claims.py` | Independent checks of the numbers and of the "flagged, unverified" wording |
+`run_all.sh` regenerates the large intermediate files (`crossfit_predictions.csv`, `label_scores*.csv`, `data/`). They are not stored in this repository, and `verify_claims.py` needs them. Each stage is one script in `src/` (`s1_prep.py` to `s9_visuals.py`), with shared helpers in `common.py` and the scoring logic in `scorer.py`.
 
-Tech: Python, PyTorch, Ultralytics YOLO11, pandas, scikit-learn, matplotlib, OpenCV.
+| path | what is in it |
+|---|---|
+| `src/` | one script per stage |
+| `results/` | logs, per-epoch CSVs, the noise manifest, evaluation JSONs, the review queue |
+| `figures/` | every figure, including Figure 1 (the GIF) |
+| `report.md` | a longer write-up |
+| `DEVIATIONS.md` | where I departed from the original plan, and why |
+| `verify_claims.py` | checks the reported numbers and the "flagged, unverified" wording against the raw files |
+
+## References
+
+- F. Yu et al. BDD100K: A Diverse Driving Dataset for Heterogeneous Multitask Learning. CVPR 2020.
+- C. G. Northcutt, L. Jiang, I. L. Chuang. Confident Learning: Estimating Uncertainty in Dataset Labels. JAIR 70, 2021.
+- Ultralytics YOLO11, https://github.com/ultralytics/ultralytics.
